@@ -1,0 +1,22 @@
+#page{
+	display: flex;
+	flex-direction: row;
+
+}
+
+#matrix input{
+	width: 3em;
+}
+
+#control_panel {
+	display: flex;
+	flex-direction: column;
+}
+
+#frequencies {
+	width: 300px;
+}
+
+.row {
+	margin:1em;
+}

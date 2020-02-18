@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title></title>
+	<link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/14.0.3/nouislider.min.css">
+	<link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+	<div id="page">
+		<canvas id="canvas" width="800" height="800"></canvas>
+		<div id="control_panel">
+			<div class="row"> <span>Number of species</span> <input type="range" id="elements_number" value="1" min="1" max="5"> </div>
+			<div class="row"> <span>Box Volume</span> <input type="range" id="volume" value="1" min="0.2" max="1" step="0.01"> </div>
+			<div class="row">
+				<span>Couplings matrix (+ is attractive, - repulsive)</span>
+				<table id="matrix">
+				</table>
+			</div>
+			<div class="row">
+				<span>Fractions of species</span>
+				<div id="frequencies">
+				</div>
+			</div>
+			<div class="row">
+				<button id="restart_button">Restart</button>
+				<button id="freeze_button">Freeze</button>
+				<button id="chill_button">Chill</button>
+				<button id="warm_button">Warmer</button>
+			</div>
+		</div>
+	</div>
+
+	<script type="text/javascript" src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/14.0.3/nouislider.min.js"></script>
+
+	<script type="text/javascript">
+		const MAX_ELEMS = 5;
+
+		var elementsNumber = 1;
+		const numParts = 300;
+
+		var couplingMatrix =  Array.from({length:MAX_ELEMS}, e => Array(MAX_ELEMS).fill(1));
+		var frequencies = Array(MAX_ELEMS-1).fill(0);
+
+
+		const boxsize_max = 800;
+		var boxsize = 800;
+
+		$("#volume").on("input",function(){
+			boxsize = boxsize_max * parseFloat($("#volume").val());
+		});
+
+		function onElemNumberChange(){
+			elementsNumber = $("#elements_number").val();
+
+			var table = $("#matrix");
+			table.html("");
+
+			for(let i = 0; i<elementsNumber; i++){
+				let row = $("<tr/>");
+				for(let j = 0; j<elementsNumber; j++){
+					let cell = $("<td/>");
+					if(i<=j)
+					{
+						let input = $(`<input type="number" value="${couplingMatrix[i][j]}" min="-4" max="4" step="0.05">`)
+						input.on("input",function(){
+							couplingMatrix[i][j] = $(this).val();
+							couplingMatrix[j][i] = $(this).val();
+
+							
+						});
+						cell.append(input);
+					}
+					else
+						cell.text("X");
+					row.append(cell);
+				}
+
+				row.appendTo(table);
+			}
+
+			if(frequenciesDiv.noUiSlider != null){
+				frequenciesDiv.noUiSlider.destroy();
+				onFrequenciesChange();
+			}
+
+			if(elementsNumber > 1){
+
+
+
+				noUiSlider.create(frequenciesDiv,
+				{
+					connect:false,
+					start: [...Array(elementsNumber-1).keys()].map(i => (i+1)/(elementsNumber)),
+					range: {
+						'min':0,
+						'max':1
+					}
+				}
+				).on('update',onFrequenciesChange);
+
+			}
+			
+			
+
+		}
+		var frequenciesDiv = $("#frequencies")[0];
+		
+		
+
+		function onFrequenciesChange(){
+			if(frequenciesDiv.hasAttribute('disabled'))
+				return;
+
+			let frequenciesSlider = frequenciesDiv.noUiSlider;
+
+			var cumSums;
+
+			if((frequenciesSlider == null) || (elementsNumber == 1))
+				cumSums = [numParts];
+			else{
+				let sliderVal = frequenciesSlider.get();
+				if (elementsNumber == 2)
+					sliderVal = [sliderVal];
+
+
+
+				cumSums = (sliderVal.map(s => numParts * parseFloat(s))).sort(function(a, b){return a-b});
+			}
+			
+
+			if(particles != null)
+			{
+				for(let j =0; j<numParts; j++)
+				{
+					p = particles[j];
+					p.typeIndex = 0;
+
+					while(j > cumSums[p.typeIndex])
+						p.typeIndex += 1;
+
+				}
+			}
+		}
+
+		onElemNumberChange();
+
+		$("#elements_number").bind("input",onElemNumberChange);
+
+
+
+
+
+
+
+
+		var cutoff = 40;
+		var cutoff2 = cutoff*cutoff;
+
+		
+
+		var particles = [];
+
+		
+
+		class Particle{
+			constructor(type,x,y,vx,vy){
+				this.x = x;
+				this.y = y;
+				this.vx = vx;
+				this.vy = vy;
+
+				this.celli = null;
+				this.cellj = null;
+
+				this.typeIndex = type;
+			}
+
+			setAcc(ax,ay){
+				this.ax = ax;
+				this.ay = ay;
+			}
+
+			rx(p2){
+				return this.x-p2.x;
+			}
+
+			ry(p2){
+				return this.y-p2.y;
+				
+			}
+
+		}
+
+
+
+
+		class Grid{
+			constructor(){
+				this.gridsize = cutoff;
+				this.sites = Math.ceil(boxsize / this.gridsize);				
+				this.cells = Array.from({length:this.sites}, e => Array(this.sites).fill([]));
+			}
+
+			clear(){
+				for(var i =0; i<this.sites; i++)
+					for(var j =0; j<this.sites; j++){
+						if (this.cells[i][j].length>0)
+							this.cells[i][j] = [];
+					}
+
+				//this.cells = Array(this.sites).fill( Array(this.sites).fill([]));
+
+			}
+
+			locate(k){
+				let p = particles[k];
+
+
+
+
+				let i = Math.floor(p.x/this.gridsize);
+				let j = Math.floor(p.y/this.gridsize);
+
+				i = Math.min(Math.max(0,i),this.sites-1);
+				j = Math.min(Math.max(0,j),this.sites-1);
+
+				if ((i<0) || (j<0) || (i>=this.sites) || (j>=this.sites))
+					console.log(i,j);
+
+				
+
+				
+				(this.cells[i][j]).push(k);
+				
+
+
+				p.celli = i;
+				p.cellj = j;
+			}
+
+			neighbours(p){
+				let out = []
+				for(let i = Math.max(0,p.celli-1); i<= Math.min(this.sites-1,p.celli+1); i++){
+					for(let j = Math.max(0,p.cellj-1); j<= Math.min(this.sites-1,p.cellj+1); j++){
+						for(let k of this.cells[i][j])
+							out.push(k);
+					}
+				}
+				return out;
+				
+			}
+		}
+
+
+
+		var Rm = 20;
+		var Rm2 = Rm*Rm;
+
+		var grid = new Grid();
+		var nCalcs = 0;
+		var number2 = particles.length*particles.length;
+
+		function timeStep(dt){
+			grid.clear();
+
+			nCalcs = 0;
+
+			for(var i=0; i<particles.length; i++){
+				let p = particles[i];
+				if(Number.isNaN(p.x)){
+					p.x = Math.random()*boxsize;
+					p.vx = 0;
+				}
+				if(Number.isNaN(p.y)){
+					p.y = Math.random()*boxsize;
+					p.vy = 0;
+				}
+				grid.locate(i);
+			}
+
+			for(var p of particles){
+
+
+				let ax = 0;
+				let ay = 0;
+
+				let neighbs = grid.neighbours(p);
+
+
+				for (var qind of neighbs){
+					let q = particles[qind];
+
+					if(p==q)
+						continue;
+
+					let rx = p.x-q.x;
+					let ry = p.y-q.y;
+					var r2 = rx*rx+ry*ry;
+
+					nCalcs += 1;
+
+					if(r2 < cutoff2){
+						let r2norm = r2 / Rm2;
+						let r6norm = r2norm*r2norm*r2norm;
+
+						let r14norm = r6norm*r6norm*r2norm;
+
+						let attraction = couplingMatrix[p.typeIndex][q.typeIndex];
+
+
+						let Fovr = Math.min(100, - 12 * (-1+attraction* r6norm) / r14norm);
+
+						ax += rx /Rm * Fovr;
+						ay += ry /Rm* Fovr;
+					}
+
+
+
+				}
+
+				p.setAcc(ax,ay);
+
+
+
+				if((p.x < 0) && (p.vx<0))
+					p.vx *= -1;
+				if((p.y < 0) && (p.vy<0))
+					p.vy *= -1;
+				if((p.x > boxsize) && (p.vx>0))
+					p.vx *= -1;
+				if((p.y > boxsize) && (p.vy>0))
+					p.vy *= -1;
+
+				p.x = Math.max(0,Math.min(boxsize,p.x));
+				p.y = Math.max(0,Math.min(boxsize,p.y));
+
+
+
+			}
+
+			for(var p of particles){
+				p.vx += dt* p.ax;
+				p.vy += dt* p.ay;
+
+				p.x += dt * p.vx;
+				p.y += dt * p.vy;
+			}
+
+
+
+
+		}
+
+
+		function newSimulation(){
+			particles = [];
+			for (var i=0; i<numParts; i++){
+				
+				particles.push(new Particle(0,Math.random()*boxsize,Math.random()*boxsize,Math.random()*10-5,Math.random()*10-5));
+			}
+
+			onFrequenciesChange();
+
+			//mainLoop();
+		}
+
+		
+		$("#freeze_button").click(freeze);
+		$("#chill_button").click(chill);
+		$("#warm_button").click(warm);
+		
+
+		function multiplySpeeds(amt){
+			for(p of particles){
+				p.vx *= amt;
+				p.vy *= amt;
+			}
+		}
+
+		function freeze(){
+			multiplySpeeds(0);
+		}
+
+		function chill(){
+			multiplySpeeds(0.9);
+		}
+
+		function warm(){
+			multiplySpeeds(1/0.9);
+		}
+
+		newSimulation();
+
+
+		var canvas =  document.getElementById("canvas");
+		var ctx = canvas.getContext("2d");
+		canvas.width = boxsize_max;
+		canvas.height = boxsize_max;
+
+		function mainLoop(){
+			for(var i=0; i<7; i++)
+				timeStep(0.03);
+
+			ctx.clearRect(0,0,boxsize_max,boxsize_max);
+
+			ctx.lineWidth = 2;
+
+			for(var p of particles){
+				ctx.fillStyle = ["#1793c4","#c55eda","#f9435a","#b1810e","#7b9213","#222222"][p.typeIndex];
+				ctx.beginPath();
+				ctx.arc(p.x, p.y, 10, 0, 2 * Math.PI);
+				ctx.fill(); 
+			}
+
+			// for(var i=0; i<grid.sites; i++)
+			// 	for(var j=0; j<grid.sites; j++)
+			// 	{
+			// 		ctx.fillText(grid.cells[i][j].length, i*grid.gridsize, j*grid.gridsize); 
+			// 	}
+
+			requestAnimationFrame(mainLoop);
+		}
+
+		mainLoop();
+
+		$("#restart_button").click(newSimulation);
+
+
+
+	</script>
+
+</body>
+</html>
